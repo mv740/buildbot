@@ -184,3 +184,68 @@ class GitLabStatusPush(http.HttpStatusPushBase):
                         state=state,
                         repo=sourcestamp['repository'], sha=sha
                     ))
+
+
+class GitlabCommentPush(GitLabStatusPush):
+    name = "GitlabCommentPush"
+    neededDetails = dict(wantProperties=True)
+
+    def setDefaults(self, context, startDescription, endDescription):
+        self.context = ''
+        self.startDescription = startDescription
+        self.endDescription = endDescription or 'Build done.'
+
+    @defer.inlineCallbacks
+    def getProjectOpenMergeRequests(self,project_id):
+        response = yield self._http.get('/api/v4/projects/%s/merge_requests?private_token=%s&state=opened' % (project_id))
+        proj = yield response.json()
+        if response.status_code == 404:
+            log.msg(
+                    'Unknown gitlab project'
+                    '{id}: {message}'.format(
+                        id=project_id, **proj))
+            return None
+
+        merge_request_list = []
+        for merge_request in proj :
+            # add to list
+            merge_request_list.append(( merge_request['sha'], merge_request['iid']))  
+        return merge_request_list
+
+    def getCurrentMergeRequestId(self,current_sha, merge_request_list):
+        for merge_request in merge_request_list:
+            sha, merge_request_id = merge_request
+            if current_sha == sha:
+                return merge_request_id
+        return None
+
+    @defer.inlineCallbacks
+    def createStatus(self,
+                     project_id, branch, sha, state, target_url=None,
+                     description=None, context=None):
+        """
+        :param project_id: Project ID from GitLab
+        :param branch: Branch name to create the status for.
+        :param sha: Full sha to create the status for.
+        :param state: one of the following 'pending', 'success', 'failed'
+                      or 'cancelled'.
+        :param target_url: Target url to associate with this status.
+        :param description: Short description of the status.
+        :param context: Context of the result
+        :return: A deferred with the result from GitLab.
+
+        """
+        #https://docs.gitlab.com/ee/api/merge_requests.html#comments-on-merge-requests
+        #POST /projects/:id/merge_requests/:merge_request_iid/notes
+
+        #body (required) - The content of a note
+        payload = {'body': description}
+
+        merge_request_list = yield self.getProjectOpenMergeRequests(project_id)
+
+        if merge_request_list is not None:
+            merge_request_id = self.getCurrentMergeRequestId(sha, merge_request_list)
+
+        return self._http.post('/api/v4/projects/%s/merge_requests/%s/notes' % (
+            project_id, merge_request_id),
+            json=payload)
