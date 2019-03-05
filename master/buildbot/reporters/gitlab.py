@@ -197,9 +197,9 @@ class GitlabCommentPush(GitLabStatusPush):
 
     @defer.inlineCallbacks
     def getProjectOpenMergeRequests(self,project_id):
-        response = yield self._http.get('/api/v4/projects/%s/merge_requests?private_token=%s&state=opened' % (project_id))
+        response = yield self._http.get('/api/v4/projects/%d/merge_requests?state=opened' % (project_id))
         proj = yield response.json()
-        if response.status_code == 404:
+        if response.code == 404:
             log.msg(
                     'Unknown gitlab project'
                     '{id}: {message}'.format(
@@ -242,10 +242,8 @@ class GitlabCommentPush(GitLabStatusPush):
         payload = {'body': description}
 
         merge_request_list = yield self.getProjectOpenMergeRequests(project_id)
+        merge_request_id = yield self.getCurrentMergeRequestId(sha, merge_request_list)
 
-        if merge_request_list is not None:
-            merge_request_id = self.getCurrentMergeRequestId(sha, merge_request_list)
-
-        return self._http.post('/api/v4/projects/%s/merge_requests/%s/notes' % (
-            project_id, merge_request_id),
-            json=payload)
+        return  self._http.post('/api/v4/projects/%d/merge_requests/%s/notes' % (
+                project_id, merge_request_id),
+                json=payload)
